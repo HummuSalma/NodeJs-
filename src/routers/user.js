@@ -2,11 +2,15 @@ const express = require('express')
 const User = require('../models/user')
 const router = new express.Router
 const auth = require('../middleware/auth')
+const multer = require('multer')
+const sharp = require('sharp')
+const {sendEmail, sendCancellationEmail}= require('../email/account')
 
 router.post('/users', async(req, res)=>{
     const user = new User(req.body)
     try{
         await user.save()
+        sendEmail(user.email,user.name)
         const token = await user.generateToken();
         res.status(201).send({user,token})
     }catch(e){
@@ -78,8 +82,8 @@ router.get('/users/:id',auth, async(req,res)=>{
     }
 })
 
-//update user by id
-router.patch('/users/:id',auth,async(req,res)=>{
+//update user who has logged in
+router.patch('/users/updateMe',auth,async(req,res)=>{
     const updates = Object.keys(req.body)
     const allowedFields = ['name','password','email','age']
     const isValidField = updates.every((update)=>{
@@ -89,15 +93,9 @@ router.patch('/users/:id',auth,async(req,res)=>{
         return res.status(400).send({error : "Invalid Field"})
     }
     try{
-        const user = await User.findById(req.params.id)
-        updates.forEach((update)=>{
-            user[update] = req.body[update]
-        })
-        await user.save()
-        if(!user){
-            return res.status(404).send({error : " User Not Found To Be Updated"})
-        }
-        res.send(user)
+        updates.forEach((update)=> req.user[update] = req.body[update])
+        await req.user.save()
+        res.send({data :req.user, message : 'User updated Successfully'})
     }catch(e){
         res.status(400).send(e)
     }
@@ -106,14 +104,82 @@ router.patch('/users/:id',auth,async(req,res)=>{
 //Delete user who has logged in 
 router.delete('/users/deleteMe',auth,async(req,res)=>{
     try{
-        const user = await User.findByIdAndDelete(req.user._id)
-        if(!user){
-            return res.status(404).send({error : "User Not Found to be deleted"})
-        }
-        res.send(user,{message : "User deleted successfully"})
+        await User.deleteOne({_id : req.user._id})
+        sendCancellationEmail(req.user.email, req.user.name)
+        res.send({data :req.user, message : 'User Deleted Successfully!'})
     }catch(e){
         res.status(500).send({error : e.message})
     }
 })
 
+//Upload User Image
+const upload = multer({
+    limits :{
+        fileSize : 1000000
+    },
+    fileFilter(req,file,cb){
+        if(!file.originalname.match(/\.(jpg|jpeg|png)$/)){
+            return cb(new Error("Please upload a image with jpg, jpeg and png format"))
+        }
+        cb(undefined,true)
+    }
+})
+
+//Uploading the image
+router.post('/users/upload/avatar',auth, upload.single('avatar') ,async(req,res)=>{ 
+    // console.log(req.file.buffer)
+    const buffer = await sharp(req.file.buffer).png().toBuffer()
+    req.user.avatar = buffer
+    await req.user.save()
+    res.send({message : 'Image uploaded successfully!!'})
+},(error,req,res,next)=>{
+    res.status(500).send({error : error.message})
+})
+
+//Deleting the image
+router.delete('/users/image/delete',auth,async(req,res)=>{
+    try{
+        req.user.avatar=undefined
+        await req.user.save()
+        res.send({data :req.user, message : 'User Image Deleted Successfully!'})
+    }catch(e){
+        res.status(500).send({error : e.message})
+    }
+   
+})
+
+//Getting the image for a specific user
+router.get('/users/:id/avatar',async(req,res)=>{
+    try{
+        const user = await User.findById(req.params.id)
+        if(!user){
+            throw new Error('User Not Found')
+        }
+        if(!user.avatar){
+            throw new Error('User Avatar not found')
+        }
+        res.set('Content-Type','image/png')
+        res.send(user.avatar)
+    }catch(e){
+        res.status(500).send({error : e.message})
+    }
+})
+
+//Getting the image of who has logged in
+router.get('/image', auth, async(req,res)=>{
+    try{
+        const avatar = req.user.avatar
+        if(!avatar){
+            throw new Error("User avatar not found")
+        }
+        res.set('Content-Type','image/png')
+        res.send(avatar)
+    }catch(e){
+        res.status(500).send({error : e.message})
+    }
+})
+
+
 module.exports = router
+
+ 
