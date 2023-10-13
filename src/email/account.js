@@ -1,5 +1,5 @@
 const sgMail = require('@sendgrid/mail')
-const sendgridApikey = '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'
+const sendgridApikey = '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'
 
 sgMail.setApiKey(sendgridApikey)
 
@@ -17,7 +17,7 @@ const sendCancellationEmail = (email, name) => {
         to: email,
         from: 'hummusalma2003@gmail.com',
         subject: 'Cancellation Mail',
-        text: `Hi, ${name}. You've have deleted your account in task- manager application.`
+        text: `Hi, ${name}. You've have deleted your account in task-manager application.`
     })
 }
 
